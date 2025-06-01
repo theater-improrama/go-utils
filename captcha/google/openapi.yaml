@@ -1,0 +1,63 @@
+openapi: 3.0.3
+info:
+  title: Google Recaptcha API
+  description: |-
+  version: 1.0.0
+servers:
+  - url: https://www.google.com/recaptcha
+paths:
+  /api/siteverify:
+    post:
+      summary: Validates a recaptcha
+      description: Validates a Google recpatcha request.
+      operationId: siteverify
+      requestBody:
+        description: Provide user credentials to validate a users login.
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/SiteverifyForm"
+        required: true
+      responses:
+        '200':
+          description: Verification result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SiteverifyResponse'
+components:
+  schemas:
+    SiteverifyForm:
+      type: object
+      properties:
+        secret:
+          type: string
+        response:
+          type: string
+        remoteip:
+          type: string
+      required:
+        - secret
+        - response
+        - remoteip
+    SiteverifyResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            success:
+              type: boolean
+            challenge_ts:
+              type: string
+            hostname:
+              type: string
+            error-codes:
+              type: array
+              items:
+                type: string
+          required:
+            - success
+            - challenge_ts
+            - hostname
+            - error-codes
