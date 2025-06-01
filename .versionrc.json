@@ -1,0 +1,6 @@
+{
+    "commitUrlFormat": "{{host}}/theater-improrama/go-utils/commit/{{hash}}",
+    "compareUrlFormat": "{{host}}/theater-improrama/go-utils/compare/{{previousTag}}...{{currentTag}}",
+    "issueUrlFormat": "{{host}}/theater-improrama/go-utils/issues/{{id}}",
+    "userUrlFormat": "{{host}}/{{user}}"
+}
