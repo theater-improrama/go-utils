@@ -1,6 +1,3 @@
-//go:build tools
-// +build tools
-
 // enumvalidator generates Validate() methods for enum types
 package main
 
