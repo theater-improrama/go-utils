@@ -1,11 +1,13 @@
 package query
 
+type Option[FB, OB any] func(b Builder[FB, OB])
+
 type OrderByFunc[B any] func(b B) B
 
-type QueryBuilder[FB any, OB any] interface {
-	Paginate(offset, limit int) QueryBuilder[FB, OB]
-	OrderBy(fns ...OrderByFunc[OB]) QueryBuilder[FB, OB]
-	Filter(fn FilterPredicate[FB]) QueryBuilder[FB, OB]
+type Builder[FB any, OB any] interface {
+	Paginate(offset, limit int) Builder[FB, OB]
+	OrderBy(fns ...OrderByFunc[OB]) Builder[FB, OB]
+	Filter(fn FilterPredicate[FB]) Builder[FB, OB]
 }
 
 type FilterPredicate[B any] func(B) B

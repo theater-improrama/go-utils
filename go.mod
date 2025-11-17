@@ -1,6 +1,6 @@
 module github.com/theater-improrama/go-utils
 
-go 1.23.1
+go 1.24.0
 
 require (
 	github.com/go-faster/errors v0.7.1
@@ -8,7 +8,8 @@ require (
 	github.com/ogen-go/ogen v1.13.0
 	github.com/onsi/ginkgo/v2 v2.23.4
 	github.com/onsi/gomega v1.37.0
-	golang.org/x/crypto v0.38.0
+	golang.org/x/crypto v0.44.0
+	golang.org/x/tools v0.39.0
 )
 
 require (
@@ -28,11 +29,11 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/exp v0.0.0-20230725093048-515e97ebf090 // indirect
-	golang.org/x/net v0.40.0 // indirect
-	golang.org/x/sync v0.14.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
-	golang.org/x/text v0.25.0 // indirect
-	golang.org/x/tools v0.33.0 // indirect
+	golang.org/x/mod v0.30.0 // indirect
+	golang.org/x/net v0.47.0 // indirect
+	golang.org/x/sync v0.18.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
