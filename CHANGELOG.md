@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.1.8](https://github.com/theater-improrama/go-utils/compare/v0.1.7...v0.1.8) (2025-11-17)
+
+
+### Features
+
+* add queryhelpergen ([39c2ee2](https://github.com/theater-improrama/go-utils/commit/39c2ee2306cd34820e51b75d60faaccf9ce2b317))
+
 ## [0.1.7](https://github.com/theater-improrama/go-utils/compare/v0.1.6...v0.1.7) (2025-10-03)
 
 ## [0.1.6](https://github.com/theater-improrama/go-utils/compare/v0.1.5...v0.1.6) (2025-10-03)
