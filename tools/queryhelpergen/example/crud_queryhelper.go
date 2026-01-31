@@ -8,6 +8,15 @@ import (
 	time "time"
 )
 
+// FilterBuilder is the fluent builder interface for constructing filters.
+// Implementations are provided by database adapters.
+type FilterBuilder interface {
+	query.FilterBuilderLogic[FilterBuilder]
+	CreatedAfter(t time.Time) FilterBuilder
+	NameEq(name string) FilterBuilder
+}
+
+// Filter provides helper methods for constructing filter predicates.
 var Filter _Filter
 
 type _Filter struct {
@@ -19,31 +28,42 @@ func (_Filter) CreatedAfter(t time.Time) query.FilterPredicate[FilterBuilder] {
 		return b.CreatedAfter(t)
 	}
 }
+
 func (_Filter) NameEq(name string) query.FilterPredicate[FilterBuilder] {
 	return func(b FilterBuilder) FilterBuilder {
 		return b.NameEq(name)
 	}
 }
 
+// OrderByBuilder is the fluent builder interface for constructing order clauses.
+// Implementations are provided by database adapters.
+type OrderByBuilder interface {
+	CreatedAt(order query.Order) OrderByBuilder
+}
+
+// OrderBy provides helper methods for constructing order clauses.
 var OrderBy _OrderBy
 
 type _OrderBy struct{}
 
-func (_OrderBy) CreatedAt(o query.Order) query.OrderByFunc[OrderByBuilder] {
+func (_OrderBy) CreatedAt(order query.Order) query.OrderByFunc[OrderByBuilder] {
 	return func(b OrderByBuilder) OrderByBuilder {
-		return b.CreatedAt(o)
+		return b.CreatedAt(order)
 	}
 }
+
 func WithPagination(offset, limit int) query.Option[FilterBuilder, OrderByBuilder] {
 	return func(b query.Builder[FilterBuilder, OrderByBuilder]) {
 		b.Paginate(offset, limit)
 	}
 }
+
 func WithFilter(fn query.FilterPredicate[FilterBuilder]) query.Option[FilterBuilder, OrderByBuilder] {
 	return func(b query.Builder[FilterBuilder, OrderByBuilder]) {
 		b.Filter(fn)
 	}
 }
+
 func WithOrderBy(fns ...query.OrderByFunc[OrderByBuilder]) query.Option[FilterBuilder, OrderByBuilder] {
 	return func(b query.Builder[FilterBuilder, OrderByBuilder]) {
 		b.OrderBy(fns...)

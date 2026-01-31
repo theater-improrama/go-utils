@@ -12,13 +12,17 @@ type Builder[FB any, OB any] interface {
 
 type FilterPredicate[B any] func(B) B
 
-type FilterBuilderBase[B any] interface {
+// FilterBuilderLogic provides logical operations for filter builders.
+// This is embedded by generated filter builder interfaces.
+type FilterBuilderLogic[B any] interface {
 	Not(fn FilterPredicate[B]) B
 	And(fns ...FilterPredicate[B]) B
 	Or(fns ...FilterPredicate[B]) B
 }
 
-type FilterBase[B FilterBuilderBase[B]] struct{}
+// FilterBase provides helper methods for constructing filter predicates.
+// It is embedded by the generated Filter variable to provide Not/And/Or wrappers.
+type FilterBase[B FilterBuilderLogic[B]] struct{}
 
 func (FilterBase[B]) Empty() FilterPredicate[B] {
 	return func(b B) B {

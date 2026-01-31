@@ -20,18 +20,18 @@ import (
 
 func main() {
 	var (
-		filterIF string
-		orderIF  string
-		outFile  string
+		filterableIF string
+		orderableIF  string
+		outFile      string
 	)
 
-	flag.StringVar(&filterIF, "filter", "", "Name of the FilterBuilder interface (e.g., FilterBuilder)")
-	flag.StringVar(&orderIF, "order", "", "Name of the OrderByBuilder interface (e.g., OrderByBuilder)")
-	flag.StringVar(&outFile, "out", "", "Output file path for generated helpers. Defaults to <GOFILE>_query_helpers.go")
+	flag.StringVar(&filterableIF, "filterable", "", "Name of the Filterable interface (abstract filter definitions)")
+	flag.StringVar(&orderableIF, "orderable", "", "Name of the Orderable interface (abstract order definitions)")
+	flag.StringVar(&outFile, "out", "", "Output file path for generated code. Defaults to <GOFILE>_queryhelper.go")
 	flag.Parse()
 
-	if filterIF == "" && orderIF == "" {
-		fatalf("provide at least one of -filter or -order")
+	if filterableIF == "" && orderableIF == "" {
+		fatalf("provide at least one of -filterable or -orderable")
 	}
 
 	pkg, err := loadPackage()
@@ -39,52 +39,26 @@ func main() {
 		fatalf("load package: %v", err)
 	}
 
-	// Discover interfaces by name
-	var (
-		filterIface *types.Interface
-		orderIface  *types.Interface
-	)
-
-	lookupInterface := func(name string) *types.Interface {
-		if name == "" {
-			return nil
-		}
-		obj := pkg.Types.Scope().Lookup(name)
-		if obj == nil {
-			fatalf("interface %q not found in package %s", name, pkg.PkgPath)
-		}
-		named, ok := obj.Type().(*types.Named)
-		if !ok {
-			fatalf("%q is not a named type", name)
-		}
-		iface, ok := named.Underlying().(*types.Interface)
-		if !ok {
-			fatalf("%q is not an interface type", name)
-		}
-		// Ensure methods are computed
-		iface.Complete()
-		return iface
-	}
-
-	filterIface = lookupInterface(filterIF)
-	orderIface = lookupInterface(orderIF)
-
 	g := newGenerator(pkg)
 
-	// Collect methods and imports for Filter and OrderBy wrappers
-	if filterIface != nil {
-		names := declaredInterfaceMethodNames(pkg, filterIF)
-		methods := methodsByName(filterIface, names)
-		methods = filterOutLogical(methods)
-		g.addFilterWrappers(filterIF, methods)
+	// Process Filterable interface -> generate FilterBuilder interface + helpers
+	if filterableIF != "" {
+		iface := lookupInterface(pkg, filterableIF)
+		names := declaredInterfaceMethodNames(pkg, filterableIF)
+		methods := methodsByName(iface, names)
+		g.addFilterable(filterableIF, methods)
 	}
-	if orderIface != nil {
-		names := declaredInterfaceMethodNames(pkg, orderIF)
-		methods := methodsByName(orderIface, names)
-		g.addOrderByWrappers(orderIF, methods)
+
+	// Process Orderable interface -> generate OrderByBuilder interface + helpers
+	if orderableIF != "" {
+		iface := lookupInterface(pkg, orderableIF)
+		names := declaredInterfaceMethodNames(pkg, orderableIF)
+		methods := methodsByName(iface, names)
+		g.addOrderable(orderableIF, methods)
 	}
-	if filterIF != "" && orderIF != "" {
-		g.addQueryHelpers(filterIF, orderIF)
+
+	if filterableIF != "" && orderableIF != "" {
+		g.addQueryHelpers()
 	}
 
 	// Assemble file
@@ -95,8 +69,6 @@ func main() {
 	}
 
 	if outFile == "" {
-		// If invoked via go:generate, GOFILE is the source file containing the directive.
-		// Derive output as <GOFILE base>_queryhelper.go in current directory
 		gofile := os.Getenv("GOFILE")
 		base := "generated_queryhelper"
 		if gofile != "" {
@@ -132,7 +104,22 @@ func loadPackage() (*packages.Package, error) {
 	return pkgs[0], nil
 }
 
-// generator holds state for code generation, including import resolution.
+func lookupInterface(pkg *packages.Package, name string) *types.Interface {
+	obj := pkg.Types.Scope().Lookup(name)
+	if obj == nil {
+		fatalf("interface %q not found in package %s", name, pkg.PkgPath)
+	}
+	named, ok := obj.Type().(*types.Named)
+	if !ok {
+		fatalf("%q is not a named type", name)
+	}
+	iface, ok := named.Underlying().(*types.Interface)
+	if !ok {
+		fatalf("%q is not an interface type", name)
+	}
+	iface.Complete()
+	return iface
+}
 
 type generator struct {
 	pkg       *packages.Package
@@ -140,25 +127,39 @@ type generator struct {
 	usedAlias map[string]bool
 	needQuery bool
 
-	// template data
-	hasFilter     bool
-	filterIFName  string
-	filterMethods []methodSpec
+	// Filterable -> FilterBuilder
+	hasFilter          bool
+	filterableIFName   string // e.g., "TransactionFilterable"
+	filterBuilderName  string // e.g., "TransactionFilterBuilder"
+	filterMethods      []filterMethodSpec
+	filterHelperPrefix string // e.g., "Transaction"
 
-	hasOrder     bool
-	orderIFName  string
-	orderMethods []methodSpec
+	// Orderable -> OrderByBuilder
+	hasOrder            bool
+	orderableIFName     string // e.g., "TransactionOrderable"
+	orderByBuilderName  string // e.g., "TransactionOrderByBuilder"
+	orderMethods        []orderMethodSpec
+	orderByHelperPrefix string // e.g., "Transaction"
 
 	hasQuery bool
 }
 
+type filterMethodSpec struct {
+	Name      string
+	ParamList string // e.g., "amount apd.Decimal"
+	ArgList   string // e.g., "amount"
+}
+
+type orderMethodSpec struct {
+	Name string
+}
+
 func newGenerator(pkg *packages.Package) *generator {
-	g := &generator{
+	return &generator{
 		pkg:       pkg,
 		imports:   make(map[string]string),
 		usedAlias: make(map[string]bool),
 	}
-	return g
 }
 
 const queryImport = "github.com/theater-improrama/go-utils/query"
@@ -178,7 +179,6 @@ func (g *generator) ensureImport(path string, suggested string) string {
 	if alias == g.pkg.Name || alias == "query" {
 		alias = alias + "pkg"
 	}
-	// prevent collisions
 	base := alias
 	for i := 1; g.usedAlias[alias]; i++ {
 		alias = fmt.Sprintf("%s%d", base, i)
@@ -214,10 +214,40 @@ func (g *generator) objNameString(v *types.Var, idx int) string {
 	return name
 }
 
-func (g *generator) addFilterWrappers(filterIFName string, methods []*types.Func) {
+// deriveBuilderName transforms "TransactionFilterable" -> "TransactionFilterBuilder"
+// and "TransactionOrderable" -> "TransactionOrderByBuilder"
+func deriveFilterBuilderName(filterableName string) string {
+	if strings.HasSuffix(filterableName, "Filterable") {
+		prefix := strings.TrimSuffix(filterableName, "Filterable")
+		return prefix + "FilterBuilder"
+	}
+	return filterableName + "Builder"
+}
+
+func deriveOrderByBuilderName(orderableName string) string {
+	if strings.HasSuffix(orderableName, "Orderable") {
+		prefix := strings.TrimSuffix(orderableName, "Orderable")
+		return prefix + "OrderByBuilder"
+	}
+	return orderableName + "Builder"
+}
+
+func deriveHelperPrefix(name string) string {
+	for _, suffix := range []string{"Filterable", "Orderable", "FilterBuilder", "OrderByBuilder"} {
+		if strings.HasSuffix(name, suffix) {
+			return strings.TrimSuffix(name, suffix)
+		}
+	}
+	return name
+}
+
+func (g *generator) addFilterable(filterableIFName string, methods []*types.Func) {
 	g.needQuery = true
 	g.hasFilter = true
-	g.filterIFName = filterIFName
+	g.filterableIFName = filterableIFName
+	g.filterBuilderName = deriveFilterBuilderName(filterableIFName)
+	g.filterHelperPrefix = deriveHelperPrefix(filterableIFName)
+
 	for _, m := range methods {
 		name := m.Name()
 		sig := m.Type().(*types.Signature)
@@ -245,7 +275,7 @@ func (g *generator) addFilterWrappers(filterIFName string, methods []*types.Func
 			}
 			plist = append(plist, pdecl)
 		}
-		g.filterMethods = append(g.filterMethods, methodSpec{
+		g.filterMethods = append(g.filterMethods, filterMethodSpec{
 			Name:      name,
 			ParamList: strings.Join(plist, ", "),
 			ArgList:   strings.Join(args, ", "),
@@ -253,75 +283,42 @@ func (g *generator) addFilterWrappers(filterIFName string, methods []*types.Func
 	}
 }
 
-func (g *generator) addOrderByWrappers(orderIFName string, methods []*types.Func) {
+func (g *generator) addOrderable(orderableIFName string, methods []*types.Func) {
 	g.needQuery = true
 	g.hasOrder = true
-	g.orderIFName = orderIFName
-	for _, m := range methods {
-		name := m.Name()
-		sig := m.Type().(*types.Signature)
-		params := sig.Params()
-		isVariadic := sig.Variadic()
+	g.orderableIFName = orderableIFName
+	g.orderByBuilderName = deriveOrderByBuilderName(orderableIFName)
+	g.orderByHelperPrefix = deriveHelperPrefix(orderableIFName)
 
-		var plist []string
-		var args []string
-		for i := 0; i < params.Len(); i++ {
-			p := params.At(i)
-			pname := g.objNameString(p, i)
-			pt := p.Type()
-			var pdecl string
-			if isVariadic && i == params.Len()-1 {
-				if slice, ok := pt.(*types.Slice); ok {
-					pdecl = fmt.Sprintf("%s ...%s", pname, g.typeString(slice.Elem()))
-					args = append(args, pname+"...")
-				} else {
-					pdecl = fmt.Sprintf("%s %s", pname, g.typeString(pt))
-					args = append(args, pname)
-				}
-			} else {
-				pdecl = fmt.Sprintf("%s %s", pname, g.typeString(pt))
-				args = append(args, pname)
-			}
-			plist = append(plist, pdecl)
-		}
-		g.orderMethods = append(g.orderMethods, methodSpec{
-			Name:      name,
-			ParamList: strings.Join(plist, ", "),
-			ArgList:   strings.Join(args, ", "),
+	for _, m := range methods {
+		g.orderMethods = append(g.orderMethods, orderMethodSpec{
+			Name: m.Name(),
 		})
 	}
 }
 
-type methodSpec struct {
-	Name      string
-	ParamList string
-	ArgList   string
-}
-
-// addQueryHelpers marks that we should render ListOption helpers using the generic
-// query.Builder[FilterIF, OrderIF] type.
-func (g *generator) addQueryHelpers(filterIFName, orderIFName string) {
+func (g *generator) addQueryHelpers() {
 	g.hasQuery = true
 	g.needQuery = true
-	g.hasFilter = true
-	g.filterIFName = filterIFName
-	g.hasOrder = true
-	g.orderIFName = orderIFName
 }
 
 type importSpec struct{ Alias, Path string }
 
 type templateData struct {
-	Package      string
-	SourceFile   string
-	Imports      []importSpec
-	HasFilter    bool
-	FilterIFName string
-	Filter       []methodSpec
-	HasOrder     bool
-	OrderIFName  string
-	Order        []methodSpec
-	HasQuery     bool
+	Package              string
+	SourceFile           string
+	Imports              []importSpec
+	HasFilter            bool
+	FilterableIFName     string
+	FilterBuilderName    string
+	FilterMethods        []filterMethodSpec
+	FilterHelperPrefix   string
+	HasOrder             bool
+	OrderableIFName      string
+	OrderByBuilderName   string
+	OrderMethods         []orderMethodSpec
+	OrderByHelperPrefix  string
+	HasQuery             bool
 }
 
 const fileTemplate = `// Code generated by queryhelpergen; DO NOT EDIT.
@@ -338,14 +335,26 @@ import (
 {{- end }}
 
 {{- if .HasFilter }}
-var Filter _Filter
 
-type _Filter struct {
-    query.FilterBase[{{ .FilterIFName }}]
+// {{ .FilterBuilderName }} is the fluent builder interface for constructing filters.
+// Implementations are provided by database adapters.
+type {{ .FilterBuilderName }} interface {
+    query.FilterBuilderLogic[{{ .FilterBuilderName }}]
+{{- range .FilterMethods }}
+    {{ .Name }}({{ .ParamList }}) {{ $.FilterBuilderName }}
+{{- end }}
 }
-{{- range .Filter }}
-func (_Filter) {{ .Name }}({{ .ParamList }}) query.FilterPredicate[{{ $.FilterIFName }}] {
-    return func(b {{ $.FilterIFName }}) {{ $.FilterIFName }} {
+
+// {{ .FilterHelperPrefix }}Filter provides helper methods for constructing filter predicates.
+var {{ .FilterHelperPrefix }}Filter _{{ .FilterHelperPrefix }}Filter
+
+type _{{ .FilterHelperPrefix }}Filter struct {
+    query.FilterBase[{{ .FilterBuilderName }}]
+}
+{{- range .FilterMethods }}
+
+func (_{{ $.FilterHelperPrefix }}Filter) {{ .Name }}({{ .ParamList }}) query.FilterPredicate[{{ $.FilterBuilderName }}] {
+    return func(b {{ $.FilterBuilderName }}) {{ $.FilterBuilderName }} {
         return b.{{ .Name }}({{ .ArgList }})
     }
 }
@@ -353,34 +362,48 @@ func (_Filter) {{ .Name }}({{ .ParamList }}) query.FilterPredicate[{{ $.FilterIF
 {{- end }}
 
 {{- if .HasOrder }}
-var OrderBy _OrderBy
 
-type _OrderBy struct{}
-{{- range .Order }}
-func (_OrderBy) {{ .Name }}({{ .ParamList }}) query.OrderByFunc[{{ $.OrderIFName }}] {
-    return func(b {{ $.OrderIFName }}) {{ $.OrderIFName }} {
-        return b.{{ .Name }}({{ .ArgList }})
+// {{ .OrderByBuilderName }} is the fluent builder interface for constructing order clauses.
+// Implementations are provided by database adapters.
+type {{ .OrderByBuilderName }} interface {
+{{- range .OrderMethods }}
+    {{ .Name }}(order query.Order) {{ $.OrderByBuilderName }}
+{{- end }}
+}
+
+// {{ .OrderByHelperPrefix }}OrderBy provides helper methods for constructing order clauses.
+var {{ .OrderByHelperPrefix }}OrderBy _{{ .OrderByHelperPrefix }}OrderBy
+
+type _{{ .OrderByHelperPrefix }}OrderBy struct{}
+{{- range .OrderMethods }}
+
+func (_{{ $.OrderByHelperPrefix }}OrderBy) {{ .Name }}(order query.Order) query.OrderByFunc[{{ $.OrderByBuilderName }}] {
+    return func(b {{ $.OrderByBuilderName }}) {{ $.OrderByBuilderName }} {
+        return b.{{ .Name }}(order)
     }
 }
 {{- end }}
 {{- end }}
 
 {{- if .HasQuery }}
-func WithPagination(offset, limit int) query.Option[{{ .FilterIFName }}, {{ .OrderIFName }}] {
-    return func(b query.Builder[{{ .FilterIFName }}, {{ .OrderIFName }}]) {
+
+func {{ .FilterHelperPrefix }}WithPagination(offset, limit int) query.Option[{{ .FilterBuilderName }}, {{ .OrderByBuilderName }}] {
+    return func(b query.Builder[{{ .FilterBuilderName }}, {{ .OrderByBuilderName }}]) {
         b.Paginate(offset, limit)
     }
 }
 {{- if .HasFilter }}
-func WithFilter(fn query.FilterPredicate[{{ .FilterIFName }}]) query.Option[{{ .FilterIFName }}, {{ .OrderIFName }}] {
-    return func(b query.Builder[{{ .FilterIFName }}, {{ .OrderIFName }}]) {
+
+func {{ .FilterHelperPrefix }}WithFilter(fn query.FilterPredicate[{{ .FilterBuilderName }}]) query.Option[{{ .FilterBuilderName }}, {{ .OrderByBuilderName }}] {
+    return func(b query.Builder[{{ .FilterBuilderName }}, {{ .OrderByBuilderName }}]) {
         b.Filter(fn)
     }
 }
 {{- end }}
 {{- if .HasOrder }}
-func WithOrderBy(fns ...query.OrderByFunc[{{ .OrderIFName }}]) query.Option[{{ .FilterIFName }}, {{ .OrderIFName }}] {
-    return func(b query.Builder[{{ .FilterIFName }}, {{ .OrderIFName }}]) {
+
+func {{ .FilterHelperPrefix }}WithOrderBy(fns ...query.OrderByFunc[{{ .OrderByBuilderName }}]) query.Option[{{ .FilterBuilderName }}, {{ .OrderByBuilderName }}] {
+    return func(b query.Builder[{{ .FilterBuilderName }}, {{ .OrderByBuilderName }}]) {
         b.OrderBy(fns...)
     }
 }
@@ -389,7 +412,6 @@ func WithOrderBy(fns ...query.OrderByFunc[{{ .OrderIFName }}]) query.Option[{{ .
 `
 
 func (g *generator) render() string {
-	// Build imports list
 	var imports []importSpec
 	if g.needQuery {
 		imports = append(imports, importSpec{Alias: "query", Path: queryImport})
@@ -404,16 +426,20 @@ func (g *generator) render() string {
 	sort.Slice(imports, func(i, j int) bool { return imports[i].Alias < imports[j].Alias })
 
 	data := templateData{
-		Package:      g.pkg.Name,
-		SourceFile:   os.Getenv("GOFILE"),
-		Imports:      imports,
-		HasFilter:    g.hasFilter,
-		FilterIFName: g.filterIFName,
-		Filter:       g.filterMethods,
-		HasOrder:     g.hasOrder,
-		OrderIFName:  g.orderIFName,
-		Order:        g.orderMethods,
-		HasQuery:     g.hasQuery,
+		Package:              g.pkg.Name,
+		SourceFile:           os.Getenv("GOFILE"),
+		Imports:              imports,
+		HasFilter:            g.hasFilter,
+		FilterableIFName:     g.filterableIFName,
+		FilterBuilderName:    g.filterBuilderName,
+		FilterMethods:        g.filterMethods,
+		FilterHelperPrefix:   g.filterHelperPrefix,
+		HasOrder:             g.hasOrder,
+		OrderableIFName:      g.orderableIFName,
+		OrderByBuilderName:   g.orderByBuilderName,
+		OrderMethods:         g.orderMethods,
+		OrderByHelperPrefix:  g.orderByHelperPrefix,
+		HasQuery:             g.hasQuery,
 	}
 
 	tpl := template.Must(template.New("file").Parse(fileTemplate))
@@ -444,7 +470,6 @@ func declaredInterfaceMethodNames(pkg *packages.Package, ifaceName string) map[s
 					continue
 				}
 				for _, field := range it.Methods.List {
-					// Only named fields are explicit method declarations.
 					if len(field.Names) == 0 {
 						continue // embedded interface, skip
 					}
@@ -467,19 +492,6 @@ func methodsByName(iface *types.Interface, names map[string]bool) []*types.Func 
 		if names[m.Name()] {
 			out = append(out, m)
 		}
-	}
-	return out
-}
-
-// filterOutLogical removes Not/And/Or methods if present.
-func filterOutLogical(methods []*types.Func) []*types.Func {
-	var out []*types.Func
-	for _, m := range methods {
-		switch m.Name() {
-		case "Not", "And", "Or":
-			continue
-		}
-		out = append(out, m)
 	}
 	return out
 }

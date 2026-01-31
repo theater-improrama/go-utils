@@ -1,6 +1,6 @@
 package example
 
-//go:generate go run ./../ -filter=FilterBuilder -order=OrderByBuilder
+//go:generate go run ./../ -filterable=Filterable -orderable=Orderable
 
 import (
 	"context"
@@ -15,20 +15,18 @@ type User interface {
 	CreatedAt() time.Time
 }
 
-type FilterBuilder interface {
-	query.FilterBuilderBase[FilterBuilder]
-
-	NameEq(name string) FilterBuilder
-	CreatedAfter(t time.Time) FilterBuilder
+type Filterable interface {
+	NameEq(name string)
+	CreatedAfter(t time.Time)
 }
 
-type OrderByBuilder interface {
-	CreatedAt(o query.Order) OrderByBuilder
+type Orderable interface {
+	CreatedAt()
 }
 
 type Repository interface {
 	List(
 		ctx context.Context,
-		opts ...query.Option[FilterBuilder, OrderByBuilder],
+		opts ...query.Option[Filterable, Orderable],
 	)
 }
