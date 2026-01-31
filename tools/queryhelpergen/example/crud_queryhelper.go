@@ -16,20 +16,20 @@ type FilterBuilder interface {
 	NameEq(name string) FilterBuilder
 }
 
-// Filter provides helper methods for constructing filter predicates.
-var Filter _Filter
+// FILTER provides helper methods for constructing filter predicates.
+var FILTER Filter
 
-type _Filter struct {
+type Filter struct {
 	query.FilterBase[FilterBuilder]
 }
 
-func (_Filter) CreatedAfter(t time.Time) query.FilterPredicate[FilterBuilder] {
+func (Filter) CreatedAfter(t time.Time) query.FilterPredicate[FilterBuilder] {
 	return func(b FilterBuilder) FilterBuilder {
 		return b.CreatedAfter(t)
 	}
 }
 
-func (_Filter) NameEq(name string) query.FilterPredicate[FilterBuilder] {
+func (Filter) NameEq(name string) query.FilterPredicate[FilterBuilder] {
 	return func(b FilterBuilder) FilterBuilder {
 		return b.NameEq(name)
 	}
@@ -41,12 +41,12 @@ type OrderByBuilder interface {
 	CreatedAt(order query.Order) OrderByBuilder
 }
 
-// OrderBy provides helper methods for constructing order clauses.
-var OrderBy _OrderBy
+// ORDER_BY provides helper methods for constructing order clauses.
+var ORDER_BY OrderBy
 
-type _OrderBy struct{}
+type OrderBy struct{}
 
-func (_OrderBy) CreatedAt(order query.Order) query.OrderByFunc[OrderByBuilder] {
+func (OrderBy) CreatedAt(order query.Order) query.OrderByFunc[OrderByBuilder] {
 	return func(b OrderByBuilder) OrderByBuilder {
 		return b.CreatedAt(order)
 	}
